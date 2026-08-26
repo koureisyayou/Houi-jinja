@@ -43,6 +43,7 @@
   }
   input[type=number]{width:92px;font-variant-numeric:tabular-nums}
   #addr{width:min(100%,320px)}
+  #exclude{width:min(100%,240px)}
   .hint{font-size:11px;color:#7A807C;margin-top:3px}
   .check{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--sumi);margin-bottom:6px}
   .check label{margin:0;font-size:13px;color:var(--sumi)}
@@ -66,7 +67,14 @@
   td.num{font-family:ui-monospace,"SF Mono",Consolas,monospace;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
   td.name a{color:var(--sumi);text-decoration:none;border-bottom:1px solid var(--ai-usu)}
   td.name a:hover{color:var(--ai)}
-  .geo{font-size:11px;color:var(--ai);text-decoration:none;margin-left:8px;white-space:nowrap}
+  .geo{font-size:11px;color:var(--ai);text-decoration:none;margin-left:8px;white-space:nowrap;border-bottom:none !important}
+  .subs{
+    margin-top:4px;padding-left:10px;
+    border-left:2px solid var(--keisen);
+    font-size:12px;color:#5A605C;line-height:1.9;
+  }
+  .subs a{color:#5A605C !important;border-bottom:1px dotted var(--keisen) !important;margin-right:10px}
+  .subs a:hover{color:var(--ai) !important}
   .ji{
     font-family:"Hiragino Mincho ProN","Yu Mincho",serif;
     font-size:17px;letter-spacing:.05em;
@@ -124,11 +132,26 @@
       <p class="hint">佐賀市 6.17／日南市 5.67（2026年・国土地理院）</p>
     </div>
   </div>
+
+  <div class="row" style="margin-top:12px">
+    <div>
+      <label for="exclude">名称に含むと除外する語（読点区切り）</label>
+      <input type="text" id="exclude" value="社務所">
+      <p class="hint">例：社務所、手水舎、灯籠</p>
+    </div>
+    <div>
+      <label for="groupdist">同名をまとめる範囲 (m)</label>
+      <input type="number" id="groupdist" value="300" min="0" step="50">
+    </div>
+  </div>
+
   <div style="margin-top:12px">
+    <div class="check"><input type="checkbox" id="grouping" checked><label for="grouping">同じ名称で近いものを1枠にまとめる</label></div>
     <div class="check"><input type="checkbox" id="magnetic"><label for="magnetic">磁北基準で表示する</label></div>
     <div class="check"><input type="checkbox" id="no-inari" checked><label for="no-inari">名称に「稲荷」を含む社を除く</label></div>
     <div class="check"><input type="checkbox" id="unnamed"><label for="unnamed">名称なしの社も含める</label></div>
   </div>
+
   <div class="row" style="margin-top:12px">
     <div>
       <label for="endpoint">Overpass サーバ</label>
@@ -167,6 +190,8 @@
 <div class="note" id="note" hidden>
   <p><b>方位角</b>は地図上の直線（メルカトル図法の等角航路）の方位です。方位盤サイトに定規を当てて引いた線と一致します。基準は真北。「磁北基準」に切り替えると、現地でコンパスを見たときの読みになります。二十四方位と八方位の判定は、切り替えても常に真北基準のままです。</p>
   <p><b>朱色の行</b>は二十四方位が甲・庚・丙・壬にあたる社です。恵方はこの4方向を順に巡るので、その年の恵方と照合してください。</p>
+  <p><b>枠内の枝分かれ</b>は、同じ名称で指定範囲内にある社です。方位角・距離は代表点のものを表示しています。離れた場所にある同名の社（上宮と下宮など）は、範囲外なので別々の行になります。</p>
+  <p><b>OSM リンク</b>は、その社が OSM でどう登録されているか（タグの中身）を表示します。Google マップ側に地点が登録されていない場合でも、ここで元データを確認できます。</p>
   <p><b>神社データは OpenStreetMap</b> の religion=shinto から取得しています。登録漏れがあります。地元で知っている社が出てこない場合は、この一覧を網羅とみなさないでください。© OpenStreetMap contributors (ODbL)</p>
 </div>
 
@@ -176,7 +201,8 @@
 "use strict";
 
 var center = null;   // {lat, lon, label}
-var rows = [];
+var items = [];      // 抽出した個々の社
+var groups = [];     // 表示単位（まとめ後）
 var sortKey = "dist";
 var sortAsc = true;
 var busy = false;
@@ -292,7 +318,6 @@ function hideDiag(){ $("diag").style.display = "none"; }
 /* ---------- クエリ ---------- */
 
 // around ではなく矩形（bbox）で取り、正確な距離はブラウザ側で計算する。
-// around はサーバ側の負荷が読みにくいため。
 function buildQuery(dmaxKm){
   var dLat = dmaxKm / 111.32;
   var dLon = dmaxKm / (111.32 * Math.cos(center.lat*Math.PI/180));
@@ -307,10 +332,9 @@ function buildQuery(dmaxKm){
 
 function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
 
-// 1回だけ投げる。成功なら elements、失敗なら理由付きで reject。
 function tryFetch(url, query){
   var ctrl = new AbortController();
-  // サーバ側の timeout:40 より長く待つ。短いと、まだ処理中のものを自分で切ってしまう。
+  // サーバ側の timeout:40 より長く待つ。
   var timer = setTimeout(function(){ ctrl.abort(); }, 90000);
 
   return fetch(url, {
@@ -340,7 +364,6 @@ function tryFetch(url, query){
   });
 }
 
-// 混雑（429/504）なら間を置いて1回だけ再試行する。
 function fetchWithRetry(url, query, onProgress){
   return tryFetch(url, query).catch(function(e){
     if (e.status === 504 || e.status === 429){
@@ -397,15 +420,24 @@ function hostOf(url){
   try { return new URL(url).host; } catch(e){ return url; }
 }
 
+/* ---------- 抽出 ---------- */
+
+function excludeWords(){
+  return $("exclude").value.split(/[、,]/) 
+    .map(function(s){ return s.trim(); })
+    .filter(function(s){ return s.length > 0; });
+}
+
 function build(elements){
   var dmin = Number($("dmin").value)||0;
   var dmax = (Number($("dmax").value)||10)*1000;
   var noInari = $("no-inari").checked;
   var withUnnamed = $("unnamed").checked;
+  var words = excludeWords();
 
   var seen = {};
-  rows = [];
-  var dropped = 0, unnamedCount = 0, outOfRange = 0;
+  items = [];
+  var inari = 0, unnamedCount = 0, outOfRange = 0, byWord = 0;
 
   elements.forEach(function(e){
     var lat = e.lat !== undefined ? e.lat : (e.center && e.center.lat);
@@ -418,7 +450,13 @@ function build(elements){
       unnamedCount++;
       if (!withUnnamed) return;
     }
-    if (noInari && name.indexOf("稲荷") >= 0){ dropped++; return; }
+    if (noInari && name.indexOf("稲荷") >= 0){ inari++; return; }
+
+    var hit = false;
+    for (var i=0; i<words.length; i++){
+      if (name.indexOf(words[i]) >= 0){ hit = true; break; }
+    }
+    if (hit){ byWord++; return; }
 
     var d = distance(center.lat, center.lon, lat, lon);
     if (d < dmin || d > dmax){ outOfRange++; return; }
@@ -427,9 +465,10 @@ function build(elements){
     if (seen[key]) return;
     seen[key] = 1;
 
-    rows.push({
+    items.push({
       name: name || "（名称なし）",
       lat: lat, lon: lon,
+      osmType: e.type, osmId: e.id,
       dist: d,
       bearing: rhumbBearing(center.lat, center.lon, lat, lon)
     });
@@ -439,9 +478,10 @@ function build(elements){
   if (!elements.length){
     msg = "この矩形範囲に religion=shinto の登録がありませんでした。上限を広げてみてください。";
   } else {
-    msg = "OSM から " + elements.length + " 件 → 表示 " + rows.length + " 件";
+    msg = "OSM から " + elements.length + " 件 → 抽出 " + items.length + " 件";
     var ex = [];
-    if (dropped) ex.push("稲荷 " + dropped);
+    if (inari) ex.push("稲荷 " + inari);
+    if (byWord) ex.push("除外語 " + byWord);
     if (!withUnnamed && unnamedCount) ex.push("名称なし " + unnamedCount);
     if (outOfRange) ex.push("距離条件外 " + outOfRange);
     if (ex.length) msg += "（除外：" + ex.join("／") + "）";
@@ -449,37 +489,121 @@ function build(elements){
   $("status").textContent = msg;
   $("status").className = "center";
 
+  regroup();
+}
+
+/* ---------- 同名まとめ ---------- */
+
+// 「松枝神社 本殿」→「松枝神社」。空白より前を基準名とする。
+function baseName(name){
+  var m = name.split(/[\s　]+/);
+  return m[0];
+}
+
+function regroup(){
+  var on = $("grouping").checked;
+  var radius = Number($("groupdist").value);
+  if (isNaN(radius) || radius < 0) radius = 0;
+
+  var sorted = items.slice().sort(function(a,b){ return a.dist - b.dist; });
+  var used = {};
+  groups = [];
+
+  sorted.forEach(function(it, i){
+    if (used[i]) return;
+    used[i] = 1;
+    var members = [it];
+
+    if (on && radius > 0){
+      var base = baseName(it.name);
+      for (var j=i+1; j<sorted.length; j++){
+        if (used[j]) continue;
+        var other = sorted[j];
+        if (baseName(other.name) !== base) continue;
+        if (distance(it.lat, it.lon, other.lat, other.lon) > radius) continue;
+        used[j] = 1;
+        members.push(other);
+      }
+    }
+
+    // 代表点：基準名と完全一致するものがあればそれ、無ければ最も近いもの
+    var base2 = baseName(it.name);
+    var rep = it;
+    for (var k=0; k<members.length; k++){
+      if (members[k].name === base2){ rep = members[k]; break; }
+    }
+
+    groups.push({
+      rep: rep,
+      base: base2,
+      members: members,
+      dist: rep.dist,
+      bearing: rep.bearing
+    });
+  });
+
+  var merged = items.length - groups.length;
+  if (merged > 0){
+    $("status").textContent += "／同名まとめで " + merged + " 件を枠内に格納";
+  }
+
   render();
 }
 
 /* ---------- 表示 ---------- */
 
+function mapLinks(x){
+  var gmap = "https://www.google.com/maps/search/?api=1&query=" + x.lat + "," + x.lon;
+  var geo  = "geo:" + x.lat + "," + x.lon + "?q=" + x.lat + "," + x.lon +
+             "(" + encodeURIComponent(x.name) + ")";
+  var osm  = (x.osmType && x.osmId)
+           ? "https://www.openstreetmap.org/" + x.osmType + "/" + x.osmId
+           : "https://www.openstreetmap.org/#map=18/" + x.lat + "/" + x.lon;
+  return {gmap:gmap, geo:geo, osm:osm};
+}
+
 function render(){
   var tbody = $("tbody");
   tbody.innerHTML = "";
-  if (!rows.length){ $("tbl").hidden = true; $("note").hidden = true; return; }
+  if (!groups.length){ $("tbl").hidden = true; $("note").hidden = true; return; }
 
   var hensa = Number($("hensa").value)||0;
   var mag = $("magnetic").checked;
 
-  rows.sort(function(a,b){
+  groups.sort(function(a,b){
     var v = a[sortKey] - b[sortKey];
     return sortAsc ? v : -v;
   });
 
-  rows.forEach(function(r){
+  groups.forEach(function(g){
+    var r = g.rep;
     var shown = mag ? (r.bearing + hensa + 360) % 360 : r.bearing;
     var ji = nijushi(r.bearing);   // 二十四方位は常に真北基準で判定する
     var tr = document.createElement("tr");
     if (EHO[ji]) tr.className = "eho";
 
-    var gmap = "https://www.google.com/maps/search/?api=1&query=" + r.lat + "," + r.lon;
-    var geo  = "geo:" + r.lat + "," + r.lon + "?q=" + r.lat + "," + r.lon +
-               "(" + encodeURIComponent(r.name) + ")";
+    var L = mapLinks(r);
+    var head = '<a href="'+L.gmap+'" target="_blank" rel="noopener">'+esc(r.name)+'</a>'
+             + '<a class="geo" href="'+L.geo+'">地図アプリ</a>'
+             + '<a class="geo" href="'+L.osm+'" target="_blank" rel="noopener">OSM</a>';
+
+    var subs = "";
+    if (g.members.length > 1){
+      var parts = [];
+      g.members.forEach(function(m){
+        if (m === r) return;
+        var ML = mapLinks(m);
+        var label = (m.name.indexOf(g.base) === 0)
+                  ? (m.name.slice(g.base.length).trim() || m.name)
+                  : m.name;
+        parts.push('<a href="'+ML.gmap+'" target="_blank" rel="noopener">'+esc(label)
+                 + ' <span style="font-size:11px">('+Math.round(m.dist)+'m)</span></a>');
+      });
+      subs = '<div class="subs">' + parts.join("") + '</div>';
+    }
 
     tr.innerHTML =
-      '<td class="name"><a href="'+gmap+'" target="_blank" rel="noopener">'+esc(r.name)+'</a>'+
-        '<a class="geo" href="'+geo+'">地図アプリ</a></td>' +
+      '<td class="name">' + head + subs + '</td>' +
       '<td class="num">'+shown.toFixed(1)+'°</td>' +
       '<td class="ji">'+ji+'</td>' +
       '<td class="hide-sp">'+hachi45(r.bearing)+' / '+hachi3060(r.bearing)+'</td>' +
@@ -509,6 +633,8 @@ $("btn-search").addEventListener("click", search);
 $("addr").addEventListener("keydown", function(e){ if (e.key === "Enter") fromAddress(); });
 $("magnetic").addEventListener("change", render);
 $("hensa").addEventListener("input", render);
+$("grouping").addEventListener("change", regroup);
+$("groupdist").addEventListener("input", regroup);
 
 Array.prototype.forEach.call(document.querySelectorAll("th.sortable"), function(th){
   th.addEventListener("click", function(){
