@@ -144,6 +144,16 @@
       <input type="number" id="groupdist" value="300" min="0" step="50">
     </div>
     <div>
+      <label for="dirfilter">二十四方位で絞る</label>
+      <select id="dirfilter"><option value="">すべて</option></select>
+      <p class="hint">恵方は甲・庚・丙・壬のいずれか</p>
+    </div>
+    <div>
+      <label for="bandwidth">区分の幅 (度)</label>
+      <input type="number" id="bandwidth" value="15" min="1" max="180" step="0.5">
+      <p class="hint">15＝二十四方位／22.5＝十六方位／30＝十二方位／45＝八方位</p>
+    </div>
+    <div>
       <label for="matchmode">名前の照合</label>
       <select id="matchmode">
         <option value="contains">部分一致（一方が他方を含む）</option>
@@ -181,12 +191,15 @@
   <pre id="diag-query"></pre>
 </div>
 
+<p class="center" id="filterinfo"></p>
+
 <table id="tbl" hidden>
   <thead>
     <tr>
       <th>神社名</th>
       <th class="sortable num" data-key="bearing">方位角 ▲▼</th>
       <th>二十四方位</th>
+      <th class="hide-sp">方位区分</th>
       <th class="hide-sp">八方位<br><span style="font-weight:400">45° / 30-60°</span></th>
       <th class="sortable num" data-key="dist">距離 ▲▼</th>
     </tr>
@@ -196,6 +209,8 @@
 
 <div class="note" id="note" hidden>
   <p><b>方位角</b>は地図上の直線（メルカトル図法の等角航路）の方位です。方位盤サイトに定規を当てて引いた線と一致します。基準は真北。「磁北基準」に切り替えると、現地でコンパスを見たときの読みになります。二十四方位と八方位の判定は、切り替えても常に真北基準のままです。</p>
+  <p><b>方位区分</b>は、指定した幅で真北を中心に割ったときに、その社が入る角度の範囲です。幅15度なら二十四方位、22.5度なら十六方位の境界と一致します。二十四方位・八方位の列は幅の設定に関わらず固定です。区分・二十四方位・八方位はいずれも真北基準で判定するため、「磁北基準」に切り替えても変わるのは方位角の数値だけです。この列はスマホでは非表示になります。</p>
+  <p><b>二十四方位で絞る</b>を使うと、その方位に入る社だけが残ります。◎印は甲・庚・丙・壬で、恵方はこの4つのいずれかです。判定は真北基準です。</p>
   <p><b>朱色の行</b>は二十四方位が甲・庚・丙・壬にあたる社です。恵方はこの4方向を順に巡るので、その年の恵方と照合してください。</p>
   <p><b>枠内の枝分かれ</b>は、名前が一致し指定範囲内にある社です。「部分一致」では、一方の名前がもう一方を含んでいればまとめます（与賀神社と与賀神社拝殿など）。一般的な社名では、近くにある別の社を巻き込むことがあります。<b>名前が完全に同じものはまとめません</b>（天満宮が2つ並ぶ場合など、別の社である可能性が高いため）。行の方位角・距離は代表点のもの、枝分かれの括弧内は代表点からの距離です。離れた場所にある同名の社（上宮と下宮など）は、範囲外なので別々の行になります。</p>
   <p><b>OSM リンク</b>は、その社が OSM でどう登録されているか（タグの中身）を表示します。Google マップ側に地点が登録されていない場合でも、ここで元データを確認できます。</p>
@@ -243,6 +258,20 @@ var EHO = {"甲":1,"庚":1,"丙":1,"壬":1};
 
 function nijushi(deg){
   return NIJUSHI[Math.floor(((deg+7.5)%360)/15)];
+}
+
+// 幅 w 度で区切ったときに、その方位が属する区間（真北中心で割る）
+function bandRange(deg, w){
+  if (!(w > 0)) w = 15;
+  var i = Math.floor((((deg + w/2) % 360) + 360) % 360 / w);
+  var start = ((i * w - w/2) % 360 + 360) % 360;
+  var end = (start + w) % 360;
+  return {start:start, end:end};
+}
+
+function fmtDeg(x){
+  var t = x.toFixed(1);
+  return (t.slice(-2) === ".0") ? t.slice(0, -2) : t;
 }
 
 // 45度均等の八方位
@@ -586,17 +615,36 @@ function mapLinks(x){
 function render(){
   var tbody = $("tbody");
   tbody.innerHTML = "";
-  if (!groups.length){ $("tbl").hidden = true; $("note").hidden = true; return; }
+
+  var fv = $("dirfilter").value;
+  var view = groups;
+  if (fv !== ""){
+    var want = NIJUSHI[Number(fv)];
+    view = groups.filter(function(g){ return nijushi(g.rep.bearing) === want; });
+    $("filterinfo").textContent = want + "（" + $("dirfilter").selectedOptions[0].textContent.trim() + "）に入るのは "
+                                + view.length + " 件（全 " + groups.length + " 件中）";
+  } else {
+    $("filterinfo").textContent = "";
+  }
+
+  if (!view.length){
+    $("tbl").hidden = true;
+    $("note").hidden = true;
+    if (fv !== "" && groups.length) $("filterinfo").textContent += "。この方位に該当なし。";
+    return;
+  }
 
   var hensa = Number($("hensa").value)||0;
   var mag = $("magnetic").checked;
+  var bw = Number($("bandwidth").value);
+  if (!(bw > 0)) bw = 15;
 
-  groups.sort(function(a,b){
+  view.sort(function(a,b){
     var v = a[sortKey] - b[sortKey];
     return sortAsc ? v : -v;
   });
 
-  groups.forEach(function(g){
+  view.forEach(function(g){
     var r = g.rep;
     var shown = mag ? (r.bearing + hensa + 360) % 360 : r.bearing;
     var ji = nijushi(r.bearing);   // 二十四方位は常に真北基準で判定する
@@ -626,10 +674,13 @@ function render(){
       subs = '<div class="subs">' + parts.join("") + '</div>';
     }
 
+    var band = bandRange(r.bearing, bw);
+
     tr.innerHTML =
       '<td class="name">' + head + subs + '</td>' +
       '<td class="num">'+shown.toFixed(1)+'°</td>' +
       '<td class="ji">'+ji+'</td>' +
+      '<td class="num hide-sp">'+fmtDeg(band.start)+'°〜'+fmtDeg(band.end)+'°</td>' +
       '<td class="hide-sp">'+hachi45(r.bearing)+' / '+hachi3060(r.bearing)+'</td>' +
       '<td class="num">'+fmtDist(r.dist)+'</td>';
     tbody.appendChild(tr);
@@ -649,6 +700,21 @@ function esc(s){
   });
 }
 
+/* ---------- 二十四方位セレクトの生成 ---------- */
+
+(function buildDirFilter(){
+  var sel = $("dirfilter");
+  for (var i=0; i<24; i++){
+    var start = ((i*15 - 7.5) % 360 + 360) % 360;
+    var end = (start + 15) % 360;
+    var o = document.createElement("option");
+    o.value = String(i);
+    o.textContent = NIJUSHI[i] + "  " + fmtDeg(start) + "〜" + fmtDeg(end) + "°"
+                  + (EHO[NIJUSHI[i]] ? "  ◎" : "");
+    sel.appendChild(o);
+  }
+})();
+
 /* ---------- 配線 ---------- */
 
 $("btn-gps").addEventListener("click", fromGPS);
@@ -657,6 +723,8 @@ $("btn-search").addEventListener("click", search);
 $("addr").addEventListener("keydown", function(e){ if (e.key === "Enter") fromAddress(); });
 $("magnetic").addEventListener("change", render);
 $("hensa").addEventListener("input", render);
+$("bandwidth").addEventListener("input", render);
+$("dirfilter").addEventListener("change", render);
 $("grouping").addEventListener("change", regroup);
 $("groupdist").addEventListener("input", regroup);
 $("matchmode").addEventListener("change", regroup);
