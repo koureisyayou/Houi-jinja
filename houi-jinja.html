@@ -140,13 +140,20 @@
       <p class="hint">例：社務所、手水舎、灯籠</p>
     </div>
     <div>
-      <label for="groupdist">同名をまとめる範囲 (m)</label>
+      <label for="groupdist">まとめる範囲 (m)</label>
       <input type="number" id="groupdist" value="300" min="0" step="50">
+    </div>
+    <div>
+      <label for="matchmode">名前の照合</label>
+      <select id="matchmode">
+        <option value="contains">部分一致（一方が他方を含む）</option>
+        <option value="prefix">完全一致（空白より前が同じ）</option>
+      </select>
     </div>
   </div>
 
   <div style="margin-top:12px">
-    <div class="check"><input type="checkbox" id="grouping" checked><label for="grouping">同じ名称で近いものを1枠にまとめる</label></div>
+    <div class="check"><input type="checkbox" id="grouping" checked><label for="grouping">名前が一致し近いものを1枠にまとめる</label></div>
     <div class="check"><input type="checkbox" id="magnetic"><label for="magnetic">磁北基準で表示する</label></div>
     <div class="check"><input type="checkbox" id="no-inari" checked><label for="no-inari">名称に「稲荷」を含む社を除く</label></div>
     <div class="check"><input type="checkbox" id="unnamed"><label for="unnamed">名称なしの社も含める</label></div>
@@ -190,7 +197,7 @@
 <div class="note" id="note" hidden>
   <p><b>方位角</b>は地図上の直線（メルカトル図法の等角航路）の方位です。方位盤サイトに定規を当てて引いた線と一致します。基準は真北。「磁北基準」に切り替えると、現地でコンパスを見たときの読みになります。二十四方位と八方位の判定は、切り替えても常に真北基準のままです。</p>
   <p><b>朱色の行</b>は二十四方位が甲・庚・丙・壬にあたる社です。恵方はこの4方向を順に巡るので、その年の恵方と照合してください。</p>
-  <p><b>枠内の枝分かれ</b>は、同じ名称で指定範囲内にある社です。方位角・距離は代表点のものを表示しています。離れた場所にある同名の社（上宮と下宮など）は、範囲外なので別々の行になります。</p>
+  <p><b>枠内の枝分かれ</b>は、名前が一致し指定範囲内にある社です。「部分一致」では、一方の名前がもう一方を含んでいればまとめます（与賀神社と与賀神社拝殿など）。一般的な社名では、近くにある別の社を巻き込むことがあります。行の方位角・距離は代表点のもの、枝分かれの括弧内は代表点からの距離です。離れた場所にある同名の社（上宮と下宮など）は、範囲外なので別々の行になります。</p>
   <p><b>OSM リンク</b>は、その社が OSM でどう登録されているか（タグの中身）を表示します。Google マップ側に地点が登録されていない場合でも、ここで元データを確認できます。</p>
   <p><b>神社データは OpenStreetMap</b> の religion=shinto から取得しています。登録漏れがあります。地元で知っている社が出てこない場合は、この一覧を網羅とみなさないでください。© OpenStreetMap contributors (ODbL)</p>
 </div>
@@ -492,16 +499,28 @@ function build(elements){
   regroup();
 }
 
-/* ---------- 同名まとめ ---------- */
+/* ---------- 名前でまとめる ---------- */
 
-// 「松枝神社 本殿」→「松枝神社」。空白より前を基準名とする。
-function baseName(name){
-  var m = name.split(/[\s　]+/);
-  return m[0];
+// 空白を除いた名前。照合はこれで行う。
+function normName(name){
+  return name.replace(/[\s　]+/g, "");
+}
+
+// 「松枝神社 本殿」→「松枝神社」。空白より前。
+function prefixName(name){
+  return name.split(/[\s　]+/)[0];
+}
+
+// 2つの名前がまとめ対象か。mode により判定を変える。
+function nameMatches(a, b, mode){
+  if (mode === "prefix") return prefixName(a) === prefixName(b);
+  var na = normName(a), nb = normName(b);
+  return na.indexOf(nb) >= 0 || nb.indexOf(na) >= 0;
 }
 
 function regroup(){
   var on = $("grouping").checked;
+  var mode = $("matchmode").value;
   var radius = Number($("groupdist").value);
   if (isNaN(radius) || radius < 0) radius = 0;
 
@@ -515,27 +534,27 @@ function regroup(){
     var members = [it];
 
     if (on && radius > 0){
-      var base = baseName(it.name);
       for (var j=i+1; j<sorted.length; j++){
         if (used[j]) continue;
         var other = sorted[j];
-        if (baseName(other.name) !== base) continue;
+        // 判定は常に起点（it）に対して行う。連鎖はさせない。
+        if (!nameMatches(it.name, other.name, mode)) continue;
         if (distance(it.lat, it.lon, other.lat, other.lon) > radius) continue;
         used[j] = 1;
         members.push(other);
       }
     }
 
-    // 代表点：基準名と完全一致するものがあればそれ、無ければ最も近いもの
-    var base2 = baseName(it.name);
-    var rep = it;
-    for (var k=0; k<members.length; k++){
-      if (members[k].name === base2){ rep = members[k]; break; }
+    // 代表点：最も短い名前のもの（親社にあたることが多い）。同長なら近い方。
+    var rep = members[0];
+    for (var k=1; k<members.length; k++){
+      var la = normName(members[k].name).length, lb = normName(rep.name).length;
+      if (la < lb || (la === lb && members[k].dist < rep.dist)) rep = members[k];
     }
 
     groups.push({
       rep: rep,
-      base: base2,
+      base: normName(rep.name),
       members: members,
       dist: rep.dist,
       bearing: rep.bearing
@@ -593,11 +612,14 @@ function render(){
       g.members.forEach(function(m){
         if (m === r) return;
         var ML = mapLinks(m);
-        var label = (m.name.indexOf(g.base) === 0)
-                  ? (m.name.slice(g.base.length).trim() || m.name)
+        var nm = normName(m.name);
+        var label = (nm.indexOf(g.base) === 0 && nm.length > g.base.length)
+                  ? nm.slice(g.base.length)
                   : m.name;
+        // 枠内の距離は「自宅から」ではなく「代表点から」を出す
+        var sep = Math.round(distance(r.lat, r.lon, m.lat, m.lon));
         parts.push('<a href="'+ML.gmap+'" target="_blank" rel="noopener">'+esc(label)
-                 + ' <span style="font-size:11px">('+Math.round(m.dist)+'m)</span></a>');
+                 + ' <span style="font-size:11px">(代表点から'+sep+'m)</span></a>');
       });
       subs = '<div class="subs">' + parts.join("") + '</div>';
     }
@@ -635,6 +657,7 @@ $("magnetic").addEventListener("change", render);
 $("hensa").addEventListener("input", render);
 $("grouping").addEventListener("change", regroup);
 $("groupdist").addEventListener("input", regroup);
+$("matchmode").addEventListener("change", regroup);
 
 Array.prototype.forEach.call(document.querySelectorAll("th.sortable"), function(th){
   th.addEventListener("click", function(){
