@@ -52,6 +52,7 @@
   }
   button.ghost{background:transparent;color:var(--ai)}
   button:hover{background:var(--ai-usu);border-color:var(--ai-usu);color:#fff}
+  button:disabled{opacity:.5;cursor:default}
   button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--sabi);outline-offset:2px}
   .center{font-size:13px;color:#5A605C;margin:6px 0 18px;min-height:1.6em}
   table{width:100%;border-collapse:collapse;font-size:14px}
@@ -138,6 +139,7 @@
     </div>
     <button id="btn-search">神社を取得</button>
   </div>
+  <p class="hint" style="margin-top:8px">混雑時は 504 が返ります。自動で1回だけ再試行し、それでも駄目なら他方のサーバに切り替えます。</p>
 </fieldset>
 
 <p class="center" id="status"></p>
@@ -145,7 +147,7 @@
 <div id="diag">
   <h3>失敗の内訳</h3>
   <div id="diag-body"></div>
-  <p style="margin:10px 0 0">同じクエリを <a id="turbo" href="#" target="_blank" rel="noopener">overpass turbo</a> で直接実行すると、サーバ側の問題か、このページ側の問題かを切り分けられます。</p>
+  <p style="margin:10px 0 0">同じクエリを <a id="turbo" href="#" target="_blank" rel="noopener">overpass turbo</a> で直接実行すると、サーバの混雑なのかクエリが重いのかを切り分けられます。</p>
   <pre id="diag-query"></pre>
 </div>
 
@@ -177,7 +179,7 @@ var center = null;   // {lat, lon, label}
 var rows = [];
 var sortKey = "dist";
 var sortAsc = true;
-var lastQuery = "";
+var busy = false;
 
 var $ = function(id){ return document.getElementById(id); };
 
@@ -287,20 +289,29 @@ function showDiag(lines, query){
 
 function hideDiag(){ $("diag").style.display = "none"; }
 
-/* ---------- 取得 ---------- */
+/* ---------- クエリ ---------- */
 
-function buildQuery(radius){
-  return "[out:json][timeout:60];\n("
-    + '\n  node["religion"="shinto"](around:'+radius+','+center.lat.toFixed(6)+','+center.lon.toFixed(6)+');'
-    + '\n  way["religion"="shinto"](around:'+radius+','+center.lat.toFixed(6)+','+center.lon.toFixed(6)+');'
-    + '\n  relation["religion"="shinto"](around:'+radius+','+center.lat.toFixed(6)+','+center.lon.toFixed(6)+');'
-    + "\n);\nout center tags;";
+// around ではなく矩形（bbox）で取り、正確な距離はブラウザ側で計算する。
+// around はサーバ側の負荷が読みにくいため。
+function buildQuery(dmaxKm){
+  var dLat = dmaxKm / 111.32;
+  var dLon = dmaxKm / (111.32 * Math.cos(center.lat*Math.PI/180));
+  var s = (center.lat - dLat).toFixed(6);
+  var w = (center.lon - dLon).toFixed(6);
+  var n = (center.lat + dLat).toFixed(6);
+  var e = (center.lon + dLon).toFixed(6);
+  return '[out:json][timeout:40];\n'
+       + 'nwr["religion"="shinto"](' + s + ',' + w + ',' + n + ',' + e + ');\n'
+       + 'out center tags;';
 }
 
-// 1台のサーバに投げる。成功なら elements、失敗なら理由付きで reject。
+function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+
+// 1回だけ投げる。成功なら elements、失敗なら理由付きで reject。
 function tryFetch(url, query){
   var ctrl = new AbortController();
-  var timer = setTimeout(function(){ ctrl.abort(); }, 30000);
+  // サーバ側の timeout:40 より長く待つ。短いと、まだ処理中のものを自分で切ってしまう。
+  var timer = setTimeout(function(){ ctrl.abort(); }, 90000);
 
   return fetch(url, {
     method: "POST",
@@ -311,54 +322,74 @@ function tryFetch(url, query){
     clearTimeout(timer);
     return r.text().then(function(text){
       if (!r.ok){
-        throw new Error("HTTP " + r.status + " " + r.statusText + " / 応答冒頭: " + text.slice(0,300));
+        var brief = text.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200);
+        var err = new Error("HTTP " + r.status + " " + r.statusText + "：" + brief);
+        err.status = r.status;
+        throw err;
       }
       var j;
       try { j = JSON.parse(text); }
-      catch (e){ throw new Error("JSON として読めない応答: " + text.slice(0,300)); }
+      catch (e){ throw new Error("JSON として読めない応答：" + text.slice(0,200)); }
+      if (j.remark) throw new Error("サーバからの注意：" + j.remark);
       return j.elements || [];
     });
   }, function(e){
     clearTimeout(timer);
-    if (e.name === "AbortError") throw new Error("30秒で応答なし（タイムアウト）");
-    // ネットワーク層で落ちるとブラウザは理由を教えてくれない
-    throw new Error("接続自体が失敗（" + e.message + "）。CORS・オフライン・file:// のいずれかの可能性");
+    if (e.name === "AbortError") throw new Error("90秒で応答なし（タイムアウト）");
+    throw new Error("接続自体が失敗（" + e.message + "）");
+  });
+}
+
+// 混雑（429/504）なら間を置いて1回だけ再試行する。
+function fetchWithRetry(url, query, onProgress){
+  return tryFetch(url, query).catch(function(e){
+    if (e.status === 504 || e.status === 429){
+      onProgress("混雑（" + e.status + "）。10秒待って再試行します…");
+      return wait(10000).then(function(){ return tryFetch(url, query); });
+    }
+    throw e;
   });
 }
 
 function search(){
+  if (busy) return;
   if (!center){ fail("status", "先に中心点を決めてください。"); return; }
   hideDiag();
 
   var dmax = Math.min(Math.max(Number($("dmax").value)||10, 1), 50);
-  var radius = Math.round(dmax*1000);
-  var query = buildQuery(radius);
-  lastQuery = query;
+  var query = buildQuery(dmax);
 
   var primary = $("endpoint").value;
   var mirror  = "https://overpass.kumi.systems/api/interpreter";
   var backup  = (primary === mirror) ? "https://overpass-api.de/api/interpreter" : mirror;
 
   var log = [];
-  $("status").textContent = "取得中… 半径 " + dmax + " km（" + hostOf(primary) + "）";
-  $("status").className = "center";
+  var setStatus = function(t){ $("status").textContent = t; $("status").className = "center"; };
 
-  tryFetch(primary, query)
+  busy = true;
+  $("btn-search").disabled = true;
+  setStatus("取得中… 半径 " + dmax + " km（" + hostOf(primary) + "）");
+
+  fetchWithRetry(primary, query, setStatus)
     .then(function(els){ build(els); })
     .catch(function(e1){
       log.push(hostOf(primary) + " → " + e1.message);
-      $("status").textContent = hostOf(primary) + " が失敗。" + hostOf(backup) + " を試します…";
-      return tryFetch(backup, query)
+      setStatus(hostOf(primary) + " が失敗。" + hostOf(backup) + " を試します…");
+      return fetchWithRetry(backup, query, setStatus)
         .then(function(els){
           build(els);
           $("status").textContent += "（" + hostOf(backup) + " から取得）";
         })
         .catch(function(e2){
           log.push(hostOf(backup) + " → " + e2.message);
-          fail("status", "どちらのサーバからも取得できませんでした。");
           log.push("ページの読み込み元: " + location.protocol + "//" + (location.host || "(なし)"));
+          fail("status", "どちらのサーバからも取得できませんでした。");
           showDiag(log, query);
         });
+    })
+    .then(function(){
+      busy = false;
+      $("btn-search").disabled = false;
     });
 }
 
@@ -374,7 +405,7 @@ function build(elements){
 
   var seen = {};
   rows = [];
-  var dropped = 0, unnamedCount = 0;
+  var dropped = 0, unnamedCount = 0, outOfRange = 0;
 
   elements.forEach(function(e){
     var lat = e.lat !== undefined ? e.lat : (e.center && e.center.lat);
@@ -390,7 +421,7 @@ function build(elements){
     if (noInari && name.indexOf("稲荷") >= 0){ dropped++; return; }
 
     var d = distance(center.lat, center.lon, lat, lon);
-    if (d < dmin || d > dmax) return;
+    if (d < dmin || d > dmax){ outOfRange++; return; }
 
     var key = lat.toFixed(5)+","+lon.toFixed(5);
     if (seen[key]) return;
@@ -404,11 +435,17 @@ function build(elements){
     });
   });
 
-  var msg = "OSM から " + elements.length + " 件取得 → 表示 " + rows.length + " 件";
-  if (dropped) msg += "／稲荷 " + dropped + " 件を除外";
-  if (!$("unnamed").checked && unnamedCount) msg += "／名称なし " + unnamedCount + " 件を除外";
-  if (!rows.length && elements.length) msg += "。距離の条件を緩めてみてください。";
-  if (!elements.length) msg = "この範囲に religion=shinto の登録がありませんでした。上限を広げてみてください。";
+  var msg;
+  if (!elements.length){
+    msg = "この矩形範囲に religion=shinto の登録がありませんでした。上限を広げてみてください。";
+  } else {
+    msg = "OSM から " + elements.length + " 件 → 表示 " + rows.length + " 件";
+    var ex = [];
+    if (dropped) ex.push("稲荷 " + dropped);
+    if (!withUnnamed && unnamedCount) ex.push("名称なし " + unnamedCount);
+    if (outOfRange) ex.push("距離条件外 " + outOfRange);
+    if (ex.length) msg += "（除外：" + ex.join("／") + "）";
+  }
   $("status").textContent = msg;
   $("status").className = "center";
 
