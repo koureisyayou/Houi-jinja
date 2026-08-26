@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>方位別 神社一覧</title>
+<style>
+  :root{
+    --sumi:#1C2321;      /* 墨 */
+    --kami:#EDEDE7;      /* 紙 */
+    --ai:#2A5A6B;        /* 藍 */
+    --ai-usu:#5E8996;
+    --sabi:#9C4A32;      /* 錆朱 — 恵方候補にのみ使う */
+    --keisen:#C9C9BF;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--kami);
+    color:var(--sumi);
+    font-family:-apple-system,"Hiragino Sans","Noto Sans JP","Yu Gothic UI",sans-serif;
+    font-size:15px;
+    line-height:1.6;
+    padding:20px 16px 64px;
+  }
+  .wrap{max-width:860px;margin:0 auto}
+  h1{
+    font-family:"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif;
+    font-size:26px;font-weight:600;letter-spacing:.08em;
+    margin:0 0 4px;
+  }
+  .lead{color:#5A605C;font-size:13px;margin:0 0 24px}
+  fieldset{border:1px solid var(--keisen);border-radius:2px;padding:14px 16px 16px;margin:0 0 14px}
+  legend{
+    font-size:11px;letter-spacing:.18em;color:var(--ai);
+    padding:0 6px;
+  }
+  .row{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:flex-end}
+  label{display:block;font-size:12px;color:#5A605C;margin-bottom:3px}
+  input[type=text],input[type=number],select{
+    font:inherit;padding:7px 9px;border:1px solid var(--keisen);
+    background:#fff;border-radius:2px;color:var(--sumi);
+  }
+  input[type=number]{width:92px;font-variant-numeric:tabular-nums}
+  #addr{width:min(100%,320px)}
+  .hint{font-size:11px;color:#7A807C;margin-top:3px}
+  .check{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--sumi);margin-bottom:6px}
+  .check label{margin:0;font-size:13px;color:var(--sumi)}
+  button{
+    font:inherit;padding:8px 16px;border:1px solid var(--ai);
+    background:var(--ai);color:#fff;border-radius:2px;cursor:pointer;
+  }
+  button.ghost{background:transparent;color:var(--ai)}
+  button:hover{background:var(--ai-usu);border-color:var(--ai-usu);color:#fff}
+  button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--sabi);outline-offset:2px}
+  .center{font-size:13px;color:#5A605C;margin:6px 0 18px;min-height:1.6em}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:8px 6px;text-align:left;border-bottom:1px solid var(--keisen);vertical-align:baseline}
+  th{
+    font-size:11px;letter-spacing:.1em;color:var(--ai);font-weight:600;
+    border-bottom:1px solid var(--ai);white-space:nowrap;
+  }
+  th.sortable{cursor:pointer;user-select:none}
+  th.sortable:hover{color:var(--sabi)}
+  td.num{font-family:ui-monospace,"SF Mono",Consolas,monospace;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+  td.name a{color:var(--sumi);text-decoration:none;border-bottom:1px solid var(--ai-usu)}
+  td.name a:hover{color:var(--ai)}
+  .geo{font-size:11px;color:var(--ai);text-decoration:none;margin-left:8px;white-space:nowrap}
+  .ji{
+    font-family:"Hiragino Mincho ProN","Yu Mincho",serif;
+    font-size:17px;letter-spacing:.05em;
+  }
+  tr.eho .ji{color:var(--sabi);font-weight:600}
+  tr.eho{background:rgba(156,74,50,.05)}
+  .note{font-size:12px;color:#5A605C;margin-top:16px;border-top:1px solid var(--keisen);padding-top:12px}
+  .note b{font-weight:600;color:var(--sumi)}
+  .err{color:var(--sabi);font-size:13px}
+  #diag{
+    display:none;margin:0 0 18px;padding:12px 14px;
+    border:1px solid var(--sabi);border-radius:2px;background:#fff;
+    font-size:12px;color:var(--sumi);
+  }
+  #diag h3{margin:0 0 6px;font-size:12px;letter-spacing:.1em;color:var(--sabi)}
+  #diag pre{
+    margin:6px 0 0;padding:8px;background:var(--kami);
+    font-family:ui-monospace,Consolas,monospace;font-size:11px;
+    white-space:pre-wrap;word-break:break-all;max-height:180px;overflow:auto;
+  }
+  #diag a{color:var(--ai)}
+  @media (max-width:560px){
+    .hide-sp{display:none}
+    body{font-size:14px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>方位別 神社一覧</h1>
+<p class="lead">自宅を中心に、周辺の神社の方位角と距離を出します。吉方位・恵方との照合は各自で。</p>
+
+<fieldset>
+  <legend>中心点</legend>
+  <div class="row">
+    <div>
+      <label for="addr">住所</label>
+      <input type="text" id="addr" placeholder="佐賀県佐賀市…">
+    </div>
+    <button id="btn-addr">住所から</button>
+    <button id="btn-gps" class="ghost">現在地から</button>
+  </div>
+  <p class="center" id="center-info"></p>
+</fieldset>
+
+<fieldset>
+  <legend>条件</legend>
+  <div class="row">
+    <div><label for="dmin">距離の下限 (m)</label><input type="number" id="dmin" value="750" min="0" step="50"></div>
+    <div><label for="dmax">距離の上限 (km)</label><input type="number" id="dmax" value="10" min="1" max="50" step="1"></div>
+    <div>
+      <label for="hensa">偏角 (西偏 °)</label>
+      <input type="number" id="hensa" value="6.17" step="0.01">
+      <p class="hint">佐賀市 6.17／日南市 5.67（2026年・国土地理院）</p>
+    </div>
+  </div>
+  <div style="margin-top:12px">
+    <div class="check"><input type="checkbox" id="magnetic"><label for="magnetic">磁北基準で表示する</label></div>
+    <div class="check"><input type="checkbox" id="no-inari" checked><label for="no-inari">名称に「稲荷」を含む社を除く</label></div>
+    <div class="check"><input type="checkbox" id="unnamed"><label for="unnamed">名称なしの社も含める</label></div>
+  </div>
+  <div class="row" style="margin-top:12px">
+    <div>
+      <label for="endpoint">Overpass サーバ</label>
+      <select id="endpoint">
+        <option value="https://overpass-api.de/api/interpreter">overpass-api.de（本家）</option>
+        <option value="https://overpass.kumi.systems/api/interpreter">overpass.kumi.systems（ミラー）</option>
+      </select>
+    </div>
+    <button id="btn-search">神社を取得</button>
+  </div>
+</fieldset>
+
+<p class="center" id="status"></p>
+
+<div id="diag">
+  <h3>失敗の内訳</h3>
+  <div id="diag-body"></div>
+  <p style="margin:10px 0 0">同じクエリを <a id="turbo" href="#" target="_blank" rel="noopener">overpass turbo</a> で直接実行すると、サーバ側の問題か、このページ側の問題かを切り分けられます。</p>
+  <pre id="diag-query"></pre>
+</div>
+
+<table id="tbl" hidden>
+  <thead>
+    <tr>
+      <th>神社名</th>
+      <th class="sortable num" data-key="bearing">方位角 ▲▼</th>
+      <th>二十四方位</th>
+      <th class="hide-sp">八方位<br><span style="font-weight:400">45° / 30-60°</span></th>
+      <th class="sortable num" data-key="dist">距離 ▲▼</th>
+    </tr>
+  </thead>
+  <tbody id="tbody"></tbody>
+</table>
+
+<div class="note" id="note" hidden>
+  <p><b>方位角</b>は地図上の直線（メルカトル図法の等角航路）の方位です。方位盤サイトに定規を当てて引いた線と一致します。基準は真北。「磁北基準」に切り替えると、現地でコンパスを見たときの読みになります。二十四方位と八方位の判定は、切り替えても常に真北基準のままです。</p>
+  <p><b>朱色の行</b>は二十四方位が甲・庚・丙・壬にあたる社です。恵方はこの4方向を順に巡るので、その年の恵方と照合してください。</p>
+  <p><b>神社データは OpenStreetMap</b> の religion=shinto から取得しています。登録漏れがあります。地元で知っている社が出てこない場合は、この一覧を網羅とみなさないでください。© OpenStreetMap contributors (ODbL)</p>
+</div>
+
+</div>
+
+<script>
+"use strict";
+
+var center = null;   // {lat, lon, label}
+var rows = [];
+var sortKey = "dist";
+var sortAsc = true;
+var lastQuery = "";
+
+var $ = function(id){ return document.getElementById(id); };
+
+/* ---------- 方位・距離の計算 ---------- */
+
+// 等角航路（メルカトル図法上の直線）の方位。真北基準、0-360度。
+function rhumbBearing(lat1, lon1, lat2, lon2){
+  var p1 = lat1*Math.PI/180, p2 = lat2*Math.PI/180;
+  var dl = (lon2-lon1)*Math.PI/180;
+  if (Math.abs(dl) > Math.PI) dl -= (dl>0?1:-1)*2*Math.PI;
+  var dpsi = Math.log(Math.tan(Math.PI/4+p2/2)/Math.tan(Math.PI/4+p1/2));
+  var b = Math.atan2(dl, dpsi)*180/Math.PI;
+  return (b+360)%360;
+}
+
+// 大円距離（メートル）
+function distance(lat1, lon1, lat2, lon2){
+  var R = 6371008.8;
+  var p1 = lat1*Math.PI/180, p2 = lat2*Math.PI/180;
+  var dp = (lat2-lat1)*Math.PI/180, dl = (lon2-lon1)*Math.PI/180;
+  var a = Math.sin(dp/2)*Math.sin(dp/2) + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)*Math.sin(dl/2);
+  return 2*R*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+var NIJUSHI = ["子","癸","丑","艮","寅","甲","卯","乙","辰","巽","巳","丙",
+               "午","丁","未","坤","申","庚","酉","辛","戌","乾","亥","壬"];
+var EHO = {"甲":1,"庚":1,"丙":1,"壬":1};
+
+function nijushi(deg){
+  return NIJUSHI[Math.floor(((deg+7.5)%360)/15)];
+}
+
+// 45度均等の八方位
+function hachi45(deg){
+  var n = ["北","北東","東","南東","南","南西","西","北西"];
+  return n[Math.floor(((deg+22.5)%360)/45)];
+}
+
+// 四正30度・四隅60度の八方位
+function hachi3060(deg){
+  var d = (deg+360)%360;
+  if (d >= 345 || d < 15)  return "北";
+  if (d < 75)  return "北東";
+  if (d < 105) return "東";
+  if (d < 165) return "南東";
+  if (d < 195) return "南";
+  if (d < 255) return "南西";
+  if (d < 285) return "西";
+  return "北西";
+}
+
+/* ---------- 中心点 ---------- */
+
+function setCenter(lat, lon, label){
+  center = {lat:lat, lon:lon, label:label};
+  $("center-info").textContent = label + "  " + lat.toFixed(6) + ", " + lon.toFixed(6);
+  $("center-info").className = "center";
+}
+
+function fromGPS(){
+  if (!navigator.geolocation){ fail("center-info", "この端末では現在地を取得できません。住所を入力してください。"); return; }
+  $("center-info").textContent = "現在地を取得中…";
+  navigator.geolocation.getCurrentPosition(function(p){
+    setCenter(p.coords.latitude, p.coords.longitude, "現在地");
+  }, function(e){
+    fail("center-info", "現在地を取得できませんでした（" + (e && e.message ? e.message : "理由不明") + "）。住所を入力してください。");
+  }, {enableHighAccuracy:true, timeout:10000});
+}
+
+function fromAddress(){
+  var q = $("addr").value.trim();
+  if (!q){ fail("center-info", "住所を入力してください。"); return; }
+  $("center-info").textContent = "住所を検索中…";
+  fetch("https://msearch.gsi.go.jp/address-search/AddressSearch?q=" + encodeURIComponent(q))
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      if (!j || !j.length){ fail("center-info", "住所が見つかりません。市区町村から書き直してみてください。"); return; }
+      var c = j[0].geometry.coordinates;   // [経度, 緯度]
+      setCenter(c[1], c[0], j[0].properties.title || q);
+    })
+    .catch(function(e){
+      fail("center-info", "住所検索に接続できませんでした：" + e);
+    });
+}
+
+function fail(id, msg){
+  var el = $(id);
+  el.textContent = msg;
+  el.className = "center err";
+}
+
+/* ---------- 診断表示 ---------- */
+
+function showDiag(lines, query){
+  var b = $("diag-body");
+  b.innerHTML = "";
+  lines.forEach(function(t){
+    var p = document.createElement("p");
+    p.style.margin = "2px 0";
+    p.textContent = t;
+    b.appendChild(p);
+  });
+  $("diag-query").textContent = query;
+  $("turbo").href = "https://overpass-turbo.eu/?Q=" + encodeURIComponent(query);
+  $("diag").style.display = "block";
+}
+
+function hideDiag(){ $("diag").style.display = "none"; }
+
+/* ---------- 取得 ---------- */
+
+function buildQuery(radius){
+  return "[out:json][timeout:60];\n("
+    + '\n  node["religion"="shinto"](around:'+radius+','+center.lat.toFixed(6)+','+center.lon.toFixed(6)+');'
+    + '\n  way["religion"="shinto"](around:'+radius+','+center.lat.toFixed(6)+','+center.lon.toFixed(6)+');'
+    + '\n  relation["religion"="shinto"](around:'+radius+','+center.lat.toFixed(6)+','+center.lon.toFixed(6)+');'
+    + "\n);\nout center tags;";
+}
+
+// 1台のサーバに投げる。成功なら elements、失敗なら理由付きで reject。
+function tryFetch(url, query){
+  var ctrl = new AbortController();
+  var timer = setTimeout(function(){ ctrl.abort(); }, 30000);
+
+  return fetch(url, {
+    method: "POST",
+    headers: {"Content-Type": "application/x-www-form-urlencoded"},
+    body: "data=" + encodeURIComponent(query),
+    signal: ctrl.signal
+  }).then(function(r){
+    clearTimeout(timer);
+    return r.text().then(function(text){
+      if (!r.ok){
+        throw new Error("HTTP " + r.status + " " + r.statusText + " / 応答冒頭: " + text.slice(0,300));
+      }
+      var j;
+      try { j = JSON.parse(text); }
+      catch (e){ throw new Error("JSON として読めない応答: " + text.slice(0,300)); }
+      return j.elements || [];
+    });
+  }, function(e){
+    clearTimeout(timer);
+    if (e.name === "AbortError") throw new Error("30秒で応答なし（タイムアウト）");
+    // ネットワーク層で落ちるとブラウザは理由を教えてくれない
+    throw new Error("接続自体が失敗（" + e.message + "）。CORS・オフライン・file:// のいずれかの可能性");
+  });
+}
+
+function search(){
+  if (!center){ fail("status", "先に中心点を決めてください。"); return; }
+  hideDiag();
+
+  var dmax = Math.min(Math.max(Number($("dmax").value)||10, 1), 50);
+  var radius = Math.round(dmax*1000);
+  var query = buildQuery(radius);
+  lastQuery = query;
+
+  var primary = $("endpoint").value;
+  var mirror  = "https://overpass.kumi.systems/api/interpreter";
+  var backup  = (primary === mirror) ? "https://overpass-api.de/api/interpreter" : mirror;
+
+  var log = [];
+  $("status").textContent = "取得中… 半径 " + dmax + " km（" + hostOf(primary) + "）";
+  $("status").className = "center";
+
+  tryFetch(primary, query)
+    .then(function(els){ build(els); })
+    .catch(function(e1){
+      log.push(hostOf(primary) + " → " + e1.message);
+      $("status").textContent = hostOf(primary) + " が失敗。" + hostOf(backup) + " を試します…";
+      return tryFetch(backup, query)
+        .then(function(els){
+          build(els);
+          $("status").textContent += "（" + hostOf(backup) + " から取得）";
+        })
+        .catch(function(e2){
+          log.push(hostOf(backup) + " → " + e2.message);
+          fail("status", "どちらのサーバからも取得できませんでした。");
+          log.push("ページの読み込み元: " + location.protocol + "//" + (location.host || "(なし)"));
+          showDiag(log, query);
+        });
+    });
+}
+
+function hostOf(url){
+  try { return new URL(url).host; } catch(e){ return url; }
+}
+
+function build(elements){
+  var dmin = Number($("dmin").value)||0;
+  var dmax = (Number($("dmax").value)||10)*1000;
+  var noInari = $("no-inari").checked;
+  var withUnnamed = $("unnamed").checked;
+
+  var seen = {};
+  rows = [];
+  var dropped = 0, unnamedCount = 0;
+
+  elements.forEach(function(e){
+    var lat = e.lat !== undefined ? e.lat : (e.center && e.center.lat);
+    var lon = e.lon !== undefined ? e.lon : (e.center && e.center.lon);
+    if (lat === undefined || lon === undefined) return;
+
+    var tags = e.tags || {};
+    var name = tags.name || tags["name:ja"] || "";
+    if (!name){
+      unnamedCount++;
+      if (!withUnnamed) return;
+    }
+    if (noInari && name.indexOf("稲荷") >= 0){ dropped++; return; }
+
+    var d = distance(center.lat, center.lon, lat, lon);
+    if (d < dmin || d > dmax) return;
+
+    var key = lat.toFixed(5)+","+lon.toFixed(5);
+    if (seen[key]) return;
+    seen[key] = 1;
+
+    rows.push({
+      name: name || "（名称なし）",
+      lat: lat, lon: lon,
+      dist: d,
+      bearing: rhumbBearing(center.lat, center.lon, lat, lon)
+    });
+  });
+
+  var msg = "OSM から " + elements.length + " 件取得 → 表示 " + rows.length + " 件";
+  if (dropped) msg += "／稲荷 " + dropped + " 件を除外";
+  if (!$("unnamed").checked && unnamedCount) msg += "／名称なし " + unnamedCount + " 件を除外";
+  if (!rows.length && elements.length) msg += "。距離の条件を緩めてみてください。";
+  if (!elements.length) msg = "この範囲に religion=shinto の登録がありませんでした。上限を広げてみてください。";
+  $("status").textContent = msg;
+  $("status").className = "center";
+
+  render();
+}
+
+/* ---------- 表示 ---------- */
+
+function render(){
+  var tbody = $("tbody");
+  tbody.innerHTML = "";
+  if (!rows.length){ $("tbl").hidden = true; $("note").hidden = true; return; }
+
+  var hensa = Number($("hensa").value)||0;
+  var mag = $("magnetic").checked;
+
+  rows.sort(function(a,b){
+    var v = a[sortKey] - b[sortKey];
+    return sortAsc ? v : -v;
+  });
+
+  rows.forEach(function(r){
+    var shown = mag ? (r.bearing + hensa + 360) % 360 : r.bearing;
+    var ji = nijushi(r.bearing);   // 二十四方位は常に真北基準で判定する
+    var tr = document.createElement("tr");
+    if (EHO[ji]) tr.className = "eho";
+
+    var gmap = "https://www.google.com/maps/search/?api=1&query=" + r.lat + "," + r.lon;
+    var geo  = "geo:" + r.lat + "," + r.lon + "?q=" + r.lat + "," + r.lon +
+               "(" + encodeURIComponent(r.name) + ")";
+
+    tr.innerHTML =
+      '<td class="name"><a href="'+gmap+'" target="_blank" rel="noopener">'+esc(r.name)+'</a>'+
+        '<a class="geo" href="'+geo+'">地図アプリ</a></td>' +
+      '<td class="num">'+shown.toFixed(1)+'°</td>' +
+      '<td class="ji">'+ji+'</td>' +
+      '<td class="hide-sp">'+hachi45(r.bearing)+' / '+hachi3060(r.bearing)+'</td>' +
+      '<td class="num">'+fmtDist(r.dist)+'</td>';
+    tbody.appendChild(tr);
+  });
+
+  $("tbl").hidden = false;
+  $("note").hidden = false;
+}
+
+function fmtDist(m){
+  return m < 1000 ? Math.round(m) + " m" : (m/1000).toFixed(2) + " km";
+}
+
+function esc(s){
+  return String(s).replace(/[&<>"]/g, function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];
+  });
+}
+
+/* ---------- 配線 ---------- */
+
+$("btn-gps").addEventListener("click", fromGPS);
+$("btn-addr").addEventListener("click", fromAddress);
+$("btn-search").addEventListener("click", search);
+$("addr").addEventListener("keydown", function(e){ if (e.key === "Enter") fromAddress(); });
+$("magnetic").addEventListener("change", render);
+$("hensa").addEventListener("input", render);
+
+Array.prototype.forEach.call(document.querySelectorAll("th.sortable"), function(th){
+  th.addEventListener("click", function(){
+    var k = th.dataset.key;
+    if (sortKey === k) sortAsc = !sortAsc; else { sortKey = k; sortAsc = true; }
+    render();
+  });
+});
+</script>
+</body>
+</html>
