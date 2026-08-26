@@ -144,14 +144,11 @@
       <input type="number" id="groupdist" value="300" min="0" step="50">
     </div>
     <div>
-      <label for="dirfilter">二十四方位で絞る</label>
-      <select id="dirfilter"><option value="">すべて</option></select>
-      <p class="hint">恵方は甲・庚・丙・壬のいずれか</p>
-    </div>
-    <div>
-      <label for="bandwidth">区分の幅 (度)</label>
-      <input type="number" id="bandwidth" value="15" min="1" max="180" step="0.5">
-      <p class="hint">15＝二十四方位／22.5＝十六方位／30＝十二方位／45＝八方位</p>
+      <label for="dirfrom">方位の範囲（二十四方位）</label>
+      <select id="dirfrom"><option value="">すべて</option></select>
+      <span style="color:#7A807C">〜</span>
+      <select id="dirto"></select>
+      <p class="hint" id="dirinfo">◎は甲・庚・丙・壬（恵方はこのいずれか）</p>
     </div>
     <div>
       <label for="matchmode">名前の照合</label>
@@ -191,15 +188,12 @@
   <pre id="diag-query"></pre>
 </div>
 
-<p class="center" id="filterinfo"></p>
-
 <table id="tbl" hidden>
   <thead>
     <tr>
       <th>神社名</th>
       <th class="sortable num" data-key="bearing">方位角 ▲▼</th>
       <th>二十四方位</th>
-      <th class="hide-sp">方位区分</th>
       <th class="hide-sp">八方位<br><span style="font-weight:400">45° / 30-60°</span></th>
       <th class="sortable num" data-key="dist">距離 ▲▼</th>
     </tr>
@@ -209,8 +203,8 @@
 
 <div class="note" id="note" hidden>
   <p><b>方位角</b>は地図上の直線（メルカトル図法の等角航路）の方位です。方位盤サイトに定規を当てて引いた線と一致します。基準は真北。「磁北基準」に切り替えると、現地でコンパスを見たときの読みになります。二十四方位と八方位の判定は、切り替えても常に真北基準のままです。</p>
-  <p><b>方位区分</b>は、指定した幅で真北を中心に割ったときに、その社が入る角度の範囲です。幅15度なら二十四方位、22.5度なら十六方位の境界と一致します。二十四方位・八方位の列は幅の設定に関わらず固定です。区分・二十四方位・八方位はいずれも真北基準で判定するため、「磁北基準」に切り替えても変わるのは方位角の数値だけです。この列はスマホでは非表示になります。</p>
-  <p><b>二十四方位で絞る</b>を使うと、その方位に入る社だけが残ります。◎印は甲・庚・丙・壬で、恵方はこの4つのいずれかです。判定は真北基準です。</p>
+  <p><b>二十四方位・八方位</b>はいずれも真北基準で判定します。「磁北基準」に切り替えても変わるのは方位角の数値だけです。</p>
+  <p><b>方位の範囲</b>は取得時の条件です。開始と終了を二十四方位で選ぶと、時計回りにその範囲へ入る社だけを拾います（丙〜丁なら157.5°〜187.5°）。開始と終了を同じにすれば1区間だけ。◎印は甲・庚・丙・壬で、恵方はこのいずれかです。変更したら「神社を取得」を押し直してください。判定は真北基準です。</p>
   <p><b>朱色の行</b>は二十四方位が甲・庚・丙・壬にあたる社です。恵方はこの4方向を順に巡るので、その年の恵方と照合してください。</p>
   <p><b>枠内の枝分かれ</b>は、名前が一致し指定範囲内にある社です。「部分一致」では、一方の名前がもう一方を含んでいればまとめます（与賀神社と与賀神社拝殿など）。一般的な社名では、近くにある別の社を巻き込むことがあります。<b>名前が完全に同じものはまとめません</b>（天満宮が2つ並ぶ場合など、別の社である可能性が高いため）。行の方位角・距離は代表点のもの、枝分かれの括弧内は代表点からの距離です。離れた場所にある同名の社（上宮と下宮など）は、範囲外なので別々の行になります。</p>
   <p><b>OSM リンク</b>は、その社が OSM でどう登録されているか（タグの中身）を表示します。Google マップ側に地点が登録されていない場合でも、ここで元データを確認できます。</p>
@@ -260,13 +254,44 @@ function nijushi(deg){
   return NIJUSHI[Math.floor(((deg+7.5)%360)/15)];
 }
 
-// 幅 w 度で区切ったときに、その方位が属する区間（真北中心で割る）
-function bandRange(deg, w){
-  if (!(w > 0)) w = 15;
-  var i = Math.floor((((deg + w/2) % 360) + 360) % 360 / w);
-  var start = ((i * w - w/2) % 360 + 360) % 360;
-  var end = (start + w) % 360;
-  return {start:start, end:end};
+// 二十四方位 i 番目の始まりの角度（真北中心で15度ずつ割る）
+function bandStart(i){
+  return ((i*15 - 7.5) % 360 + 360) % 360;
+}
+
+// 選んだ範囲（開始の区間の始まり 〜 終了の区間の終わり）を時計回りで返す。
+// 開始が「すべて」なら null。
+function selectedSector(){
+  var f = $("dirfrom").value;
+  if (f === "") return null;
+  var i = Number(f);
+  var j = Number($("dirto").value);
+  if (isNaN(j)) j = i;
+  var a = bandStart(i);
+  var span = (((j - i) % 24) + 24) % 24;   // 時計回りに何区間ぶんか
+  return {from:a, span:(span + 1) * 15, fromIdx:i, toIdx:j};
+}
+
+function inSector(deg, sec){
+  if (!sec) return true;
+  var d = ((deg - sec.from) % 360 + 360) % 360;
+  return d < sec.span;
+}
+
+function syncDirInfo(){
+  var sec = selectedSector();
+  var el = $("dirinfo");
+  var tail = "／◎は甲・庚・丙・壬（恵方はこのいずれか）";
+  if (!sec){
+    $("dirto").disabled = true;
+    el.textContent = "全方位を対象" + tail;
+  } else {
+    $("dirto").disabled = false;
+    var to = (sec.from + sec.span) % 360;
+    el.textContent = "対象：" + fmtDeg(sec.from) + "°〜" + fmtDeg(to) + "°"
+                   + "（" + NIJUSHI[sec.fromIdx] + "〜" + NIJUSHI[sec.toIdx] + "・"
+                   + (sec.span/15) + "区間）" + tail;
+  }
 }
 
 function fmtDeg(x){
@@ -470,10 +495,11 @@ function build(elements){
   var noInari = $("no-inari").checked;
   var withUnnamed = $("unnamed").checked;
   var words = excludeWords();
+  var sec = selectedSector();
 
   var seen = {};
   items = [];
-  var inari = 0, unnamedCount = 0, outOfRange = 0, byWord = 0;
+  var inari = 0, unnamedCount = 0, outOfRange = 0, byWord = 0, outOfDir = 0;
 
   elements.forEach(function(e){
     var lat = e.lat !== undefined ? e.lat : (e.center && e.center.lat);
@@ -497,6 +523,9 @@ function build(elements){
     var d = distance(center.lat, center.lon, lat, lon);
     if (d < dmin || d > dmax){ outOfRange++; return; }
 
+    var brg = rhumbBearing(center.lat, center.lon, lat, lon);
+    if (!inSector(brg, sec)){ outOfDir++; return; }
+
     var key = lat.toFixed(5)+","+lon.toFixed(5);
     if (seen[key]) return;
     seen[key] = 1;
@@ -506,7 +535,7 @@ function build(elements){
       lat: lat, lon: lon,
       osmType: e.type, osmId: e.id,
       dist: d,
-      bearing: rhumbBearing(center.lat, center.lon, lat, lon)
+      bearing: brg
     });
   });
 
@@ -520,6 +549,7 @@ function build(elements){
     if (byWord) ex.push("除外語 " + byWord);
     if (!withUnnamed && unnamedCount) ex.push("名称なし " + unnamedCount);
     if (outOfRange) ex.push("距離条件外 " + outOfRange);
+    if (outOfDir) ex.push("方位範囲外 " + outOfDir);
     if (ex.length) msg += "（除外：" + ex.join("／") + "）";
   }
   $("status").textContent = msg;
@@ -616,28 +646,11 @@ function render(){
   var tbody = $("tbody");
   tbody.innerHTML = "";
 
-  var fv = $("dirfilter").value;
   var view = groups;
-  if (fv !== ""){
-    var want = NIJUSHI[Number(fv)];
-    view = groups.filter(function(g){ return nijushi(g.rep.bearing) === want; });
-    $("filterinfo").textContent = want + "（" + $("dirfilter").selectedOptions[0].textContent.trim() + "）に入るのは "
-                                + view.length + " 件（全 " + groups.length + " 件中）";
-  } else {
-    $("filterinfo").textContent = "";
-  }
-
-  if (!view.length){
-    $("tbl").hidden = true;
-    $("note").hidden = true;
-    if (fv !== "" && groups.length) $("filterinfo").textContent += "。この方位に該当なし。";
-    return;
-  }
+  if (!view.length){ $("tbl").hidden = true; $("note").hidden = true; return; }
 
   var hensa = Number($("hensa").value)||0;
   var mag = $("magnetic").checked;
-  var bw = Number($("bandwidth").value);
-  if (!(bw > 0)) bw = 15;
 
   view.sort(function(a,b){
     var v = a[sortKey] - b[sortKey];
@@ -674,13 +687,10 @@ function render(){
       subs = '<div class="subs">' + parts.join("") + '</div>';
     }
 
-    var band = bandRange(r.bearing, bw);
-
     tr.innerHTML =
       '<td class="name">' + head + subs + '</td>' +
       '<td class="num">'+shown.toFixed(1)+'°</td>' +
       '<td class="ji">'+ji+'</td>' +
-      '<td class="num hide-sp">'+fmtDeg(band.start)+'°〜'+fmtDeg(band.end)+'°</td>' +
       '<td class="hide-sp">'+hachi45(r.bearing)+' / '+hachi3060(r.bearing)+'</td>' +
       '<td class="num">'+fmtDist(r.dist)+'</td>';
     tbody.appendChild(tr);
@@ -703,16 +713,17 @@ function esc(s){
 /* ---------- 二十四方位セレクトの生成 ---------- */
 
 (function buildDirFilter(){
-  var sel = $("dirfilter");
-  for (var i=0; i<24; i++){
-    var start = ((i*15 - 7.5) % 360 + 360) % 360;
-    var end = (start + 15) % 360;
-    var o = document.createElement("option");
-    o.value = String(i);
-    o.textContent = NIJUSHI[i] + "  " + fmtDeg(start) + "〜" + fmtDeg(end) + "°"
-                  + (EHO[NIJUSHI[i]] ? "  ◎" : "");
-    sel.appendChild(o);
-  }
+  ["dirfrom","dirto"].forEach(function(id){
+    var sel = $(id);
+    for (var i=0; i<24; i++){
+      var o = document.createElement("option");
+      o.value = String(i);
+      o.textContent = NIJUSHI[i] + "  " + fmtDeg(bandStart(i)) + "〜" + fmtDeg(bandStart(i)+15) + "°"
+                    + (EHO[NIJUSHI[i]] ? "  ◎" : "");
+      sel.appendChild(o);
+    }
+  });
+  syncDirInfo();
 })();
 
 /* ---------- 配線 ---------- */
@@ -723,8 +734,8 @@ $("btn-search").addEventListener("click", search);
 $("addr").addEventListener("keydown", function(e){ if (e.key === "Enter") fromAddress(); });
 $("magnetic").addEventListener("change", render);
 $("hensa").addEventListener("input", render);
-$("bandwidth").addEventListener("input", render);
-$("dirfilter").addEventListener("change", render);
+$("dirfrom").addEventListener("change", syncDirInfo);
+$("dirto").addEventListener("change", syncDirInfo);
 $("grouping").addEventListener("change", regroup);
 $("groupdist").addEventListener("input", regroup);
 $("matchmode").addEventListener("change", regroup);
