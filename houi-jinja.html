@@ -45,6 +45,7 @@
   #addr{width:min(100%,320px)}
   #exclude{width:min(100%,240px)}
   .hint{font-size:11px;color:#7A807C;margin-top:3px}
+  .hint.warn{color:var(--sabi)}
   .check{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--sumi);margin-bottom:6px}
   .check label{margin:0;font-size:13px;color:var(--sumi)}
   button{
@@ -56,6 +57,12 @@
   button:disabled{opacity:.5;cursor:default}
   button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--sabi);outline-offset:2px}
   .center{font-size:13px;color:#5A605C;margin:6px 0 18px;min-height:1.6em}
+  #eho-info{
+    margin:10px 0 0;padding:8px 10px;
+    border-left:3px solid var(--sabi);background:rgba(156,74,50,.05);
+    color:var(--sumi);
+  }
+  #eho-info .ji{font-size:18px;color:var(--sabi);font-weight:600}
   table{width:100%;border-collapse:collapse;font-size:14px}
   th,td{padding:8px 6px;text-align:left;border-bottom:1px solid var(--keisen);vertical-align:baseline}
   th{
@@ -81,6 +88,15 @@
   }
   tr.eho .ji{color:var(--sabi);font-weight:600}
   tr.eho{background:rgba(156,74,50,.05)}
+  tr.eho-now{background:rgba(156,74,50,.15)}
+  tr.eho-now .ji{font-weight:700}
+  .badge{
+    display:inline-block;margin-left:5px;padding:1px 5px;
+    font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;
+    font-size:10px;font-weight:600;letter-spacing:.1em;line-height:1.5;
+    color:#fff;background:var(--sabi);border-radius:2px;vertical-align:3px;
+  }
+  .mag-note{font-size:11px;color:#5A605C;display:block}
   .note{font-size:12px;color:#5A605C;margin-top:16px;border-top:1px solid var(--keisen);padding-top:12px}
   .note b{font-weight:600;color:var(--sumi)}
   .err{color:var(--sabi);font-size:13px}
@@ -168,6 +184,16 @@
 
   <div class="row" style="margin-top:12px">
     <div>
+      <label for="ehoyear">恵方を出す年（西暦）</label>
+      <input type="number" id="ehoyear" step="1" min="1" max="9999" style="width:104px">
+      <p class="hint" id="ehoyear-hint">十干＝(西暦年−4) mod 10 から算出します。</p>
+    </div>
+    <button id="btn-eho" class="ghost" type="button">恵方の方位に絞る</button>
+  </div>
+  <p id="eho-info" class="hint"></p>
+
+  <div class="row" style="margin-top:12px">
+    <div>
       <label for="endpoint">Overpass サーバ</label>
       <select id="endpoint">
         <option value="https://overpass-api.de/api/interpreter">overpass-api.de（本家）</option>
@@ -205,7 +231,9 @@
   <p><b>方位角</b>は地図上の直線（メルカトル図法の等角航路）の方位です。方位盤サイトに定規を当てて引いた線と一致します。基準は真北。「磁北基準」に切り替えると、現地でコンパスを見たときの読みになります。二十四方位と八方位の判定は、切り替えても常に真北基準のままです。</p>
   <p><b>二十四方位・八方位</b>はいずれも真北基準で判定します。「磁北基準」に切り替えても変わるのは方位角の数値だけです。</p>
   <p><b>方位の範囲</b>は取得時の条件です。開始と終了を二十四方位で選ぶと、時計回りにその範囲へ入る社だけを拾います（丙〜丁なら157.5°〜187.5°）。開始と終了を同じにすれば1区間だけ。◎印は甲・庚・丙・壬で、恵方はこのいずれかです。変更したら「神社を取得」を押し直してください。判定は真北基準です。</p>
-  <p><b>朱色の行</b>は二十四方位が甲・庚・丙・壬にあたる社です。恵方はこの4方向を順に巡るので、その年の恵方と照合してください。</p>
+  <p><b>朱色の行</b>は二十四方位が甲・庚・丙・壬にあたる社です。恵方はこの4方向を順に巡ります。<b>濃い朱色で「恵方」と付いた行</b>が、指定した年の恵方にあたる社です。</p>
+  <p><b>恵方の求め方</b>は、その年の十干から決まります。十干は (西暦年 − 4) を 10 で割った余りで、0=甲・1=乙…9=癸。甲と己の年は甲（真北75°）、乙と庚の年は庚（255°）、丁と壬の年は壬（345°）、丙・辛・戊・癸の年は丙（165°）が恵方です。角度は二十四方位の区間の中心で、真北基準。</p>
+  <p><b>年の区切りに注意</b>。恵方は立春から翌年の節分までの年に紐づきます。節分は2月2日〜2月4日の間で年により動くため、このページでは年を自動で切り替えません。1月〜2月初旬に使う場合は、立春を過ぎているかを確認して年を手で指定してください。</p>
   <p><b>枠内の枝分かれ</b>は、名前が一致し指定範囲内にある社です。「部分一致」では、一方の名前がもう一方を含んでいればまとめます（与賀神社と与賀神社拝殿など）。一般的な社名では、近くにある別の社を巻き込むことがあります。<b>名前が完全に同じものはまとめません</b>（天満宮が2つ並ぶ場合など、別の社である可能性が高いため）。行の方位角・距離は代表点のもの、枝分かれの括弧内は代表点からの距離です。離れた場所にある同名の社（上宮と下宮など）は、範囲外なので別々の行になります。</p>
   <p><b>OSM リンク</b>は、その社が OSM でどう登録されているか（タグの中身）を表示します。Google マップ側に地点が登録されていない場合でも、ここで元データを確認できます。</p>
   <p><b>神社データは OpenStreetMap</b> の religion=shinto から取得しています。登録漏れがあります。地元で知っている社が出てこない場合は、この一覧を網羅とみなさないでください。© OpenStreetMap contributors (ODbL)</p>
@@ -222,6 +250,7 @@ var groups = [];     // 表示単位（まとめ後）
 var sortKey = "dist";
 var sortAsc = true;
 var busy = false;
+var ehoJi = null;    // 指定年の恵方にあたる二十四方位（"甲"など）。未確定なら null
 
 var $ = function(id){ return document.getElementById(id); };
 
@@ -305,6 +334,13 @@ function hachi45(deg){
   return n[Math.floor(((deg+22.5)%360)/45)];
 }
 
+// 16方位（恵方の呼び名に使う）
+function hachi16(deg){
+  var n = ["北","北北東","北東","東北東","東","東南東","南東","南南東",
+           "南","南南西","南西","西南西","西","西北西","北西","北北西"];
+  return n[Math.floor(((deg+11.25)%360)/22.5)];
+}
+
 // 四正30度・四隅60度の八方位
 function hachi3060(deg){
   var d = (deg+360)%360;
@@ -316,6 +352,88 @@ function hachi3060(deg){
   if (d < 255) return "南西";
   if (d < 285) return "西";
   return "北西";
+}
+
+/* ---------- 恵方 ---------- */
+
+var KAN = ["甲","乙","丙","丁","戊","己","庚","辛","壬","癸"];
+var KAN_YOMI = ["きのえ","きのと","ひのえ","ひのと","つちのえ",
+                "つちのと","かのえ","かのと","みずのえ","みずのと"];
+// 十干（0=甲）に対する恵方の二十四方位。
+// 甲・己→甲、乙・庚→庚、丁・壬→壬、丙・辛・戊・癸→丙。
+var EHO_BY_KAN = ["甲","庚","丙","壬","丙","甲","庚","丙","壬","丙"];
+
+function kanIndex(year){
+  return ((year - 4) % 10 + 10) % 10;
+}
+
+function ehoOfYear(year){
+  var k = kanIndex(year);
+  var ji = EHO_BY_KAN[k];
+  var idx = NIJUSHI.indexOf(ji);
+  var deg = (idx * 15) % 360;          // 区間の中心 = 真北基準の方位角
+  return {
+    year: year,
+    kan: KAN[k],
+    yomi: KAN_YOMI[k],
+    ji: ji,
+    idx: idx,
+    deg: deg,
+    label: hachi16(deg) + "微" + hachi45(deg)
+  };
+}
+
+function currentEho(){
+  var v = $("ehoyear").value;
+  if (v === "") return null;
+  var y = Math.round(Number(v));
+  if (!isFinite(y) || y < 1) return null;
+  return ehoOfYear(y);
+}
+
+function syncEho(){
+  var el = $("eho-info");
+  var e = currentEho();
+
+  if (!e){
+    ehoJi = null;
+    el.className = "hint err";
+    el.textContent = "年を入力すると、その年の恵方を判定します。";
+    $("btn-eho").disabled = true;
+    $("btn-eho").textContent = "恵方の方位に絞る";
+    render();
+    return;
+  }
+
+  ehoJi = e.ji;
+  el.className = "hint";
+
+  var hensa = Number($("hensa").value) || 0;
+  var html = e.year + "年の十干は <b>" + e.kan + "（" + e.yomi + "）</b>。"
+           + '恵方は二十四方位の <span class="ji">' + e.ji + "</span> ＝ "
+           + e.label + "・真北 " + e.deg + "°";
+  if ($("magnetic").checked){
+    html += '<span class="mag-note">磁北基準（西偏 ' + hensa + "°）での読みは "
+          + fmtDeg((e.deg + hensa + 360) % 360) + "°</span>";
+  }
+  el.innerHTML = html;
+
+  $("btn-eho").disabled = false;
+  $("btn-eho").textContent = "「" + e.ji + "」の方位に絞る";
+  render();
+}
+
+function focusEho(){
+  var e = currentEho();
+  if (!e) return;
+  $("dirfrom").value = String(e.idx);
+  $("dirto").value = String(e.idx);
+  syncDirInfo();
+  var st = $("status");
+  st.className = "center";
+  st.textContent = "方位の範囲を「" + e.ji + "」の1区間（"
+                 + fmtDeg(bandStart(e.idx)) + "°〜" + fmtDeg(bandStart(e.idx)+15)
+                 + "°）にしました。「神社を取得」を押し直してください。";
 }
 
 /* ---------- 中心点 ---------- */
@@ -661,8 +779,9 @@ function render(){
     var r = g.rep;
     var shown = mag ? (r.bearing + hensa + 360) % 360 : r.bearing;
     var ji = nijushi(r.bearing);   // 二十四方位は常に真北基準で判定する
+    var isEhoNow = (ehoJi !== null && ji === ehoJi);
     var tr = document.createElement("tr");
-    if (EHO[ji]) tr.className = "eho";
+    if (EHO[ji]) tr.className = isEhoNow ? "eho eho-now" : "eho";
 
     var L = mapLinks(r);
     var head = '<a href="'+L.gmap+'" target="_blank" rel="noopener">'+esc(r.name)+'</a>'
@@ -687,10 +806,12 @@ function render(){
       subs = '<div class="subs">' + parts.join("") + '</div>';
     }
 
+    var jiCell = ji + (isEhoNow ? '<span class="badge">恵方</span>' : '');
+
     tr.innerHTML =
       '<td class="name">' + head + subs + '</td>' +
       '<td class="num">'+shown.toFixed(1)+'°</td>' +
-      '<td class="ji">'+ji+'</td>' +
+      '<td class="ji">'+jiCell+'</td>' +
       '<td class="hide-sp">'+hachi45(r.bearing)+' / '+hachi3060(r.bearing)+'</td>' +
       '<td class="num">'+fmtDist(r.dist)+'</td>';
     tbody.appendChild(tr);
@@ -726,14 +847,36 @@ function esc(s){
   syncDirInfo();
 })();
 
+/* ---------- 恵方の初期値 ---------- */
+
+(function initEhoYear(){
+  var now = new Date();
+  var y = now.getFullYear();
+  $("ehoyear").value = y;
+
+  // 恵方は立春から翌年の節分まで。節分は2月2日〜4日で年により動くため、
+  // 自動では切り替えず、該当しうる時期に注意だけ出す。
+  var m = now.getMonth() + 1, d = now.getDate();
+  if (m === 1 || (m === 2 && d <= 4)){
+    var hint = $("ehoyear-hint");
+    hint.className = "hint warn";
+    hint.textContent = "立春前なら " + (y - 1) + " を指定してください。"
+                     + "恵方は立春から翌年の節分までの年に紐づき、節分の日付は年により2月2日〜4日で動きます。";
+  }
+
+  syncEho();
+})();
+
 /* ---------- 配線 ---------- */
 
 $("btn-gps").addEventListener("click", fromGPS);
 $("btn-addr").addEventListener("click", fromAddress);
 $("btn-search").addEventListener("click", search);
 $("addr").addEventListener("keydown", function(e){ if (e.key === "Enter") fromAddress(); });
-$("magnetic").addEventListener("change", render);
-$("hensa").addEventListener("input", render);
+$("magnetic").addEventListener("change", syncEho);   // syncEho の中で render を呼ぶ
+$("hensa").addEventListener("input", syncEho);
+$("ehoyear").addEventListener("input", syncEho);
+$("btn-eho").addEventListener("click", focusEho);
 $("dirfrom").addEventListener("change", syncDirInfo);
 $("dirto").addEventListener("change", syncDirInfo);
 $("grouping").addEventListener("change", regroup);
